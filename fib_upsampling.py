@@ -1,6 +1,7 @@
 import nibabel as nib
 import os
 import numpy as np
+import dipy
 import pickle
 
 from math import sin, cos, pi
@@ -36,7 +37,6 @@ class fib_upsampling:
 
 
 	def pcaTrafo( self ):
-		import dipy
 		from dipy.tracking.streamline import set_number_of_points
 		from matplotlib.mlab import PCA
 		#use sklearn instead, matplotlib pca is depricated
@@ -145,6 +145,8 @@ class fib_upsampling:
 		# classify
 		clustInd = clust.predict( pcaFibs[:,:self.cutOff] )
 
+		upFibs = []
+
 		# loop through n_clusters
 		for i in range(clust.n_clusters):
 			ind = np.where( clustInd == i )
@@ -160,4 +162,17 @@ class fib_upsampling:
 			newPCAFibs = np.random.multivariate_normal( np.mean( clustFibs, 0 ), np.cov( clustFibs.T ), self.nrRand )
 
 			randFibs = pcaResult.mu+np.concatenate((newPCAFibs,np.zeros((newPCAFibs.shape[0],pcaTrafo.shape[0]-self.cutOff),dtype=newPCAFibs.dtype)), axis=1).dot(pcaTrafo)
-			randFibs = [s.reshape((int(pcaTrafo.shape[0]/3),3)) for s in randFibs]
+
+			# appending each bundle to the list might not be a fast way to do this!
+			upFibs.append(randFibs)
+
+		# save upsampled fibers
+		upFibs = [s.reshape((int(pcaTrafo.shape[0]/3),3)) for s in np.concatenate(upFibs)]
+		newFibs = [dipy.tracking.streamline.apply_affine(np.eye(4),s) for s in upFibs]
+		newFibs = nib.streamlines.Tractogram(newFibs)
+		newFibs.affine_to_rasmm = streams.affine
+
+		header = streams.header
+		header['nb_streamlines'] = len(upFibs)
+
+		nib.streamlines.save(newFibs, 'data/fibsUp.trk', header=header)
